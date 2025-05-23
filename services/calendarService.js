@@ -1,16 +1,18 @@
+// File: Backend/services/calendarService.js
+
 const { google } = require('googleapis');
 require('dotenv').config();
 const axios = require('axios');
+
 const oauth2Client = new google.auth.OAuth2(
   process.env.GOOGLE_CLIENT_ID,
   process.env.GOOGLE_CLIENT_SECRET,
   process.env.GOOGLE_REDIRECT_URI
 );
 
-// Step 1: Generate Auth URL
+// Generate Google OAuth URL
 function getAuthURL() {
   const scopes = ['https://www.googleapis.com/auth/calendar'];
-
   return oauth2Client.generateAuthUrl({
     access_type: 'offline',
     prompt: 'consent',
@@ -18,19 +20,19 @@ function getAuthURL() {
   });
 }
 
-// Step 2: Get Tokens
+// Exchange code for tokens
 async function getTokens(code) {
   const { tokens } = await oauth2Client.getToken(code);
   oauth2Client.setCredentials(tokens);
   return tokens;
 }
 
-// Step 3: Set tokens for further requests
+// Set OAuth2 client credentials
 function setCredentials(tokens) {
   oauth2Client.setCredentials(tokens);
 }
 
-// Step 4: Get upcoming events
+// List calendar events
 async function listEvents() {
   const calendar = google.calendar({ version: 'v3', auth: oauth2Client });
 
@@ -45,7 +47,7 @@ async function listEvents() {
   return res.data.items;
 }
 
-// Step 5: Create an event
+// Create calendar event
 async function createEvent(eventData) {
   const calendar = google.calendar({ version: 'v3', auth: oauth2Client });
 
@@ -56,6 +58,8 @@ async function createEvent(eventData) {
 
   return response.data;
 }
+
+// Get events using access_token directly (for user tokens)
 async function getCalendarEvents(access_token) {
   const auth = new google.auth.OAuth2();
   auth.setCredentials({ access_token });
@@ -64,7 +68,7 @@ async function getCalendarEvents(access_token) {
 
   const res = await calendar.events.list({
     calendarId: 'primary',
-    timeMin: new Date().toISOString(), // fetch events starting now
+    timeMin: new Date().toISOString(),
     maxResults: 10,
     singleEvents: true,
     orderBy: 'startTime',
@@ -72,20 +76,49 @@ async function getCalendarEvents(access_token) {
 
   return res.data.items;
 }
+
+// Create event with access_token
 async function createCalendarEvent(access_token, event) {
-    const response = await axios.post(
-      'https://www.googleapis.com/calendar/v3/calendars/primary/events',
-      event,
-      {
-        headers: {
-          Authorization: `Bearer ${access_token}`,
-          'Content-Type': 'application/json',
-        },
-      }
-    );
-    return response.data;
-  }
-  
+  const response = await axios.post(
+    'https://www.googleapis.com/calendar/v3/calendars/primary/events',
+    event,
+    {
+      headers: {
+        Authorization: `Bearer ${access_token}`,
+        'Content-Type': 'application/json',
+      },
+    }
+  );
+  return response.data;
+}
+
+// Update event with access_token
+async function updateCalendarEvent(access_token, eventId, updatedEvent) {
+  const response = await axios.patch(
+    `https://www.googleapis.com/calendar/v3/calendars/primary/events/${eventId}`,
+    updatedEvent,
+    {
+      headers: {
+        Authorization: `Bearer ${access_token}`,
+        'Content-Type': 'application/json',
+      },
+    }
+  );
+  return response.data;
+}
+
+// Delete event with access_token
+async function deleteCalendarEvent(access_token, eventId) {
+  await axios.delete(
+    `https://www.googleapis.com/calendar/v3/calendars/primary/events/${eventId}`,
+    {
+      headers: {
+        Authorization: `Bearer ${access_token}`,
+      },
+    }
+  );
+  return { message: 'Event deleted successfully' };
+}
 
 module.exports = {
   getAuthURL,
@@ -94,6 +127,7 @@ module.exports = {
   listEvents,
   createEvent,
   getCalendarEvents,
-  getCalendarEvents,
-    createCalendarEvent,
+  createCalendarEvent,
+  updateCalendarEvent,
+  deleteCalendarEvent,
 };

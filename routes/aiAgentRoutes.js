@@ -1,17 +1,25 @@
+// File: Backend/routes/aiAgentRoutes.js
+
 const express = require('express');
 const router = express.Router();
-const aiAgentService = require('../services/aiAgentService');
+const { handleUserPrompt } = require('../controllers/aiAgentController');
 
-// POST: Send a natural language prompt to the AI agent
-router.post('/prompt', async (req, res) => {
+router.post('/prompt', handleUserPrompt);
+const { handleUserRequest } = require('../services/aiAgentService');
+
+router.post('/handle', async (req, res) => {
+  const { prompt, access_token } = req.body;
+
+  if (!prompt || !access_token) {
+    return res.status(400).json({ success: false, message: 'Missing prompt or access_token' });
+  }
+
   try {
-    const { message } = req.body;
-    const response = await aiAgentService.processPrompt(message);
-    res.json({ success: true, data: response });
-  } catch (error) {
-    console.error('Error in /ai/prompt:', error);
-    res.status(500).json({ success: false, message: 'Failed to process prompt' });
+    const { parsed, result } = await handleUserRequest(prompt, access_token);
+    return res.json({ success: true, parsed, result });
+  } catch (err) {
+    console.error('AI request failed:', err.message);
+    return res.status(500).json({ success: false, message: 'AI interpretation or calendar action failed' });
   }
 });
-
 module.exports = router;
