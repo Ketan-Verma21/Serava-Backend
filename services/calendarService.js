@@ -3,6 +3,7 @@
 const { google } = require('googleapis');
 require('dotenv').config();
 const axios = require('axios');
+const tokenService = require('./tokenService');
 
 const oauth2Client = new google.auth.OAuth2(
   process.env.GOOGLE_CLIENT_ID,
@@ -12,19 +13,100 @@ const oauth2Client = new google.auth.OAuth2(
 
 // Generate Google OAuth URL
 function getAuthURL() {
-  const scopes = ['https://www.googleapis.com/auth/calendar'];
+  const scopes = [
+    'https://www.googleapis.com/auth/calendar',
+    'https://www.googleapis.com/auth/userinfo.email' // Add email scope
+  ];
   return oauth2Client.generateAuthUrl({
     access_type: 'offline',
     prompt: 'consent',
-    scope: scopes,
+    scope: scopes
   });
+}
+
+// Get user email from Google
+async function getUserEmail(access_token) {
+  const oauth2 = google.oauth2({
+    version: 'v2',
+    auth: oauth2Client
+  });
+  
+  const { data } = await oauth2.userinfo.get();
+  return data.email;
 }
 
 // Exchange code for tokens
 async function getTokens(code) {
+  console.log('Getting tokens from Google');
   const { tokens } = await oauth2Client.getToken(code);
+  console.log('Received tokens from Google:', {
+    hasAccessToken: !!tokens.access_token,
+    hasRefreshToken: !!tokens.refresh_token,
+    expiryDate: tokens.expiry_date
+  });
+  
   oauth2Client.setCredentials(tokens);
-  return tokens;
+  
+  // Get user's email
+  const email = await getUserEmail(tokens.access_token);
+  console.log('User email:', email);
+  
+  // Store tokens using email as userId
+  await tokenService.storeTokens(email, tokens);
+  
+  return {
+    tokens,
+    email
+  };
+}
+
+// Refresh access token using refresh token
+async function refreshAccessToken(refresh_token, email) {
+  try {
+    console.log('Refreshing access token for user:', email);
+    oauth2Client.setCredentials({
+      refresh_token: refresh_token
+    });
+    
+    const { credentials } = await oauth2Client.refreshAccessToken();
+    console.log('Received new credentials from Google:', {
+      hasAccessToken: !!credentials.access_token,
+      expiryDate: credentials.expiry_date
+    });
+    
+    // Update tokens in MongoDB using email
+    await tokenService.updateTokens(email, credentials);
+    
+    return credentials;
+  } catch (error) {
+    console.error('Error refreshing access token:', error);
+    throw new Error('Failed to refresh access token');
+  }
+}
+
+// Get valid access token
+async function getValidAccessToken(email) {
+  try {
+    console.log('Getting valid access token for user:', email);
+    const tokens = await tokenService.getTokens(email);
+    
+    if (!tokens) {
+      console.log('No tokens found for user:', email);
+      throw new Error('No tokens found for user');
+    }
+    
+    if (tokenService.isTokenExpired(tokens.expires_at)) {
+      console.log('Token expired, refreshing for user:', email);
+      const newTokens = await refreshAccessToken(tokens.refresh_token, email);
+      return newTokens.access_token;
+    }
+    
+    console.log('Using existing valid token for user:', email);
+    return tokens.access_token;
+  } catch (error) {
+    console.error('Error getting valid access token:', error);
+    throw error;
+  }
 }
 
 // Set OAuth2 client credentials
@@ -130,4 +212,6 @@ module.exports = {
   createCalendarEvent,
   updateCalendarEvent,
   deleteCalendarEvent,
+  refreshAccessToken,
+  getValidAccessToken,
 };
