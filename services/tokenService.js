@@ -3,6 +3,17 @@
 const Token = require('../models/Token');
 
 class TokenService {
+  // Helper function to get current time in IST
+  getCurrentTimeIST() {
+    return new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
+  }
+
+  // Helper function to add hours in IST
+  addHoursIST(hours) {
+    const now = this.getCurrentTimeIST();
+    return new Date(now.getTime() + (hours * 60 * 60 * 1000));
+  }
+
   // Store tokens for a user
   async storeTokens(email, tokens) {
     try {
@@ -17,14 +28,14 @@ class TokenService {
         {
           accessToken: tokens.access_token,
           refreshToken: tokens.refresh_token,
-          expiresAt: new Date(Date.now() + 3600000) // Set to 1 hour from now
+          expiresAt: this.addHoursIST(1) // Set to 1 hour from now in IST
         },
         { upsert: true, new: true }
       );
       
       console.log('Tokens stored successfully:', {
         email: tokenDoc.email,
-        expiresAt: tokenDoc.expiresAt
+        expiresAt: tokenDoc.expiresAt.toLocaleString('en-US', { timeZone: 'Asia/Kolkata' })
       });
       
       return tokenDoc;
@@ -47,7 +58,7 @@ class TokenService {
 
       console.log('Found tokens for user:', {
         email: tokenDoc.email,
-        expiresAt: tokenDoc.expiresAt,
+        expiresAt: tokenDoc.expiresAt.toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }),
         isExpired: this.isTokenExpired(tokenDoc.expiresAt)
       });
 
@@ -71,14 +82,14 @@ class TokenService {
         {
           accessToken: tokens.access_token,
           refreshToken: tokens.refresh_token,
-          expiresAt: new Date(Date.now() + 3600000) // Set to 1 hour from now
+          expiresAt: this.addHoursIST(1) // Set to 1 hour from now in IST
         },
         { new: true }
       );
       
       console.log('Tokens updated successfully:', {
         email: tokenDoc.email,
-        expiresAt: tokenDoc.expiresAt
+        expiresAt: tokenDoc.expiresAt.toLocaleString('en-US', { timeZone: 'Asia/Kolkata' })
       });
       
       return tokenDoc;
@@ -102,10 +113,11 @@ class TokenService {
 
   // Check if token is expired
   isTokenExpired(expiresAt) {
-    const isExpired = new Date(expiresAt) <= new Date();
+    const currentTime = this.getCurrentTimeIST();
+    const isExpired = new Date(expiresAt) <= currentTime;
     console.log('Token expiry check:', {
-      expiresAt,
-      currentTime: new Date(),
+      expiresAt: new Date(expiresAt).toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }),
+      currentTime: currentTime.toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }),
       isExpired
     });
     return isExpired;
