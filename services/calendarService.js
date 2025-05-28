@@ -3,7 +3,11 @@
 const { google } = require('googleapis');
 require('dotenv').config();
 const axios = require('axios');
+const { DateTime } = require('luxon');
 const tokenService = require('./tokenService');
+
+// Set default timezone to Asia/Kolkata
+DateTime.local().setZone('Asia/Kolkata');
 
 const oauth2Client = new google.auth.OAuth2(
   process.env.GOOGLE_CLIENT_ID,
@@ -148,10 +152,15 @@ async function getCalendarEvents(access_token) {
 
   const calendar = google.calendar({ version: 'v3', auth });
 
+  // Calculate date range (30 days from now) using Luxon with Asia/Kolkata timezone
+  const timeMin = DateTime.now().setZone('Asia/Kolkata');
+  const timeMax = timeMin.plus({ days: 30 });
+
   const res = await calendar.events.list({
     calendarId: 'primary',
-    timeMin: new Date().toISOString(),
-    maxResults: 10,
+    timeMin: timeMin.toISO(),
+    timeMax: timeMax.toISO(),
+    maxResults: 100,
     singleEvents: true,
     orderBy: 'startTime',
   });
@@ -161,9 +170,27 @@ async function getCalendarEvents(access_token) {
 
 // Create event with access_token
 async function createCalendarEvent(access_token, event) {
+  // Convert date and time to ISO format using Luxon with Asia/Kolkata timezone
+  const startDateTime = DateTime.fromFormat(`${event.start.dateTime}`, "yyyy-MM-dd'T'HH:mm")
+    .setZone('Asia/Kolkata');
+  const endDateTime = DateTime.fromFormat(`${event.end.dateTime}`, "yyyy-MM-dd'T'HH:mm")
+    .setZone('Asia/Kolkata');
+
+  const formattedEvent = {
+    ...event,
+    start: {
+      dateTime: startDateTime.toISO(),
+      timeZone: 'Asia/Kolkata'
+    },
+    end: {
+      dateTime: endDateTime.toISO(),
+      timeZone: 'Asia/Kolkata'
+    }
+  };
+
   const response = await axios.post(
     'https://www.googleapis.com/calendar/v3/calendars/primary/events',
-    event,
+    formattedEvent,
     {
       headers: {
         Authorization: `Bearer ${access_token}`,
@@ -176,9 +203,27 @@ async function createCalendarEvent(access_token, event) {
 
 // Update event with access_token
 async function updateCalendarEvent(access_token, eventId, updatedEvent) {
+  // Convert date and time to ISO format using Luxon with Asia/Kolkata timezone
+  const startDateTime = DateTime.fromFormat(`${updatedEvent.start.dateTime}`, "yyyy-MM-dd'T'HH:mm")
+    .setZone('Asia/Kolkata');
+  const endDateTime = DateTime.fromFormat(`${updatedEvent.end.dateTime}`, "yyyy-MM-dd'T'HH:mm")
+    .setZone('Asia/Kolkata');
+
+  const formattedEvent = {
+    ...updatedEvent,
+    start: {
+      dateTime: startDateTime.toISO(),
+      timeZone: 'Asia/Kolkata'
+    },
+    end: {
+      dateTime: endDateTime.toISO(),
+      timeZone: 'Asia/Kolkata'
+    }
+  };
+
   const response = await axios.patch(
     `https://www.googleapis.com/calendar/v3/calendars/primary/events/${eventId}`,
-    updatedEvent,
+    formattedEvent,
     {
       headers: {
         Authorization: `Bearer ${access_token}`,

@@ -1,74 +1,27 @@
 // File: Backend/services/aiAgentService.js
-const axios = require('axios');
 const { getCalendarEvents, createCalendarEvent, updateCalendarEvent, deleteCalendarEvent } = require('./calendarService');
-const { buildPromptWithContext } = require('../utils/promptBuilder');
+const { classifyTask, processCalendarTask } = require('./geminiService');
+const { DateTime } = require('luxon');
 
-async function isCalendarTask(prompt) {
-  // New serava implementation - using the model's built-in calendar detection
-  const response = await axios.post('http://127.0.0.1:11434/api/generate', {
-    model: 'serava',
-    prompt: `Analyze if this is a calendar-related request. Respond with ONLY a JSON object in this format: {"isCalendarTask": true/false}
-
-User request: "${prompt}"`,
-    stream: false,
-  });
-
-  try {
-    const parsed = JSON.parse(response.data.response);
-    if (typeof parsed.isCalendarTask !== 'boolean') {
-      console.error('Invalid response format from serava:', response.data.response);
-      return false;
-    }
-    return parsed.isCalendarTask;
-  } catch (error) {
-    console.error('Error parsing serava response:', error);
-    console.log('Raw response:', response.data.response);
-    return false;
-  }
-}
+// Set default timezone to Asia/Kolkata
+DateTime.local().setZone('Asia/Kolkata');
 
 async function parseNaturalLanguage(prompt, access_token) {
   // First check if this is a calendar-related task
-  const isCalendar = await isCalendarTask(prompt);
+  const classification = await classifyTask(prompt);
   
-  if (!isCalendar) {
-    // New serava implementation
-    const response = await axios.post('http://127.0.0.1:11434/api/generate', {
-      model: 'serava',
-      prompt: prompt,
-      stream: false,
-    });
-    return { 
-      isCalendarTask: false,
-      response: response.data.response 
-    };
+  if (!classification.isCalendarTask) {
+    return classification;
   }
 
   // If it is calendar-related, proceed with calendar operations
   const events = await getCalendarEvents(access_token);
-  const structuredPrompt = buildPromptWithContext(prompt, events);
-
-  // New serava implementation
-  const response = await axios.post('http://127.0.0.1:11434/api/generate', {
-    model: 'serava',
-    prompt: structuredPrompt,
-    stream: false,
-  });
-
-  const rawOutput = response.data.response;
-  console.log('AI Response:', rawOutput);
+  const parsed = await processCalendarTask(prompt, events);
   
-  try {
-    // Try to parse the entire response as JSON first
-    const parsed = JSON.parse(rawOutput);
-    return { 
-      isCalendarTask: true,
-      ...parsed 
-    };
-  } catch (parseError) {
-    console.error('Failed to parse AI response as JSON:', parseError.message);
-    throw new Error('Invalid JSON response from AI');
-  }
+  return { 
+    isCalendarTask: true,
+    ...parsed 
+  };
 }
 
 async function handleUserRequest(prompt, access_token) {
@@ -87,10 +40,15 @@ async function handleUserRequest(prompt, access_token) {
 
   switch (intent) {
     case 'create':
+      // Create ISO datetime string using Luxon with Asia/Kolkata timezone
+      const startDateTime = DateTime.fromFormat(`${parsed.date}T${parsed.time}`, "yyyy-MM-dd'T'HH:mm")
+        .setZone('Asia/Kolkata');
+      const endDateTime = startDateTime.plus({ hours: 1 }); // Default 1-hour duration
+
       result = await createCalendarEvent(access_token, {
         summary: parsed.title,
-        start: { dateTime: new Date(`${parsed.date}T${parsed.time}`).toISOString() },
-        end: { dateTime: new Date(`${parsed.date}T${parsed.time}`).toISOString() }
+        start: { dateTime: startDateTime.toISO() },
+        end: { dateTime: endDateTime.toISO() }
       });
       break;
 
@@ -98,10 +56,14 @@ async function handleUserRequest(prompt, access_token) {
       if (!parsed.eventId) {
         throw new Error(`Cannot update event "${parsed.title}" - Event ID not found. Please specify the exact event name.`);
       }
+      const updateStartDateTime = DateTime.fromFormat(`${parsed.date}T${parsed.time}`, "yyyy-MM-dd'T'HH:mm")
+        .setZone('Asia/Kolkata');
+      const updateEndDateTime = updateStartDateTime.plus({ hours: 1 }); // Default 1-hour duration
+
       result = await updateCalendarEvent(access_token, parsed.eventId, {
         summary: parsed.title,
-        start: { dateTime: new Date(`${parsed.date}T${parsed.time}`).toISOString() },
-        end: { dateTime: new Date(`${parsed.date}T${parsed.time}`).toISOString() }
+        start: { dateTime: updateStartDateTime.toISO() },
+        end: { dateTime: updateEndDateTime.toISO() }
       });
       break;
 
@@ -115,7 +77,19 @@ async function handleUserRequest(prompt, access_token) {
     case 'fetch':
     default:
       console.log("Fetching calendar events");
-      result = await getCalendarEvents(access_token);
+      const events = await getCalendarEvents(access_token);
+      // If a specific date was requested, filter events for that date
+      if (parsed.date) {
+        const requestedDate = DateTime.fromFormat(parsed.date, "yyyy-MM-dd")
+          .setZone('Asia/Kolkata');
+        result = events.filter(event => {
+          const eventDateTime = DateTime.fromISO(event.start.dateTime || event.start.date)
+            .setZone('Asia/Kolkata');
+          return eventDateTime.hasSame(requestedDate, 'day');
+        });
+      } else {
+        result = events;
+      }
       break;
   }
 
