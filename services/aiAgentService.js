@@ -35,6 +35,11 @@ async function handleUserRequest(prompt, access_token) {
     };
   }
 
+  // For scheduling queries, return only the parsed response
+  if (parsed.intent === 'schedule') {
+    return { parsed };
+  }
+
   const intent = parsed.intent?.toLowerCase();
   let result;
 
@@ -96,4 +101,7 @@ async function handleUserRequest(prompt, access_token) {
   return { parsed, result };
 }
 
-module.exports = { handleUserRequest };
+module.exports = {
+  parseNaturalLanguage,
+  handleUserRequest
+};
