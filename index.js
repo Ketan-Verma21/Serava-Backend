@@ -7,7 +7,14 @@ const calendarRoutes = require('./routes/calendarRoutes');
 const aiAgentRoutes = require('./routes/aiAgentRoutes');
 
 const app = express();
-app.use(cors());
+
+// Configure CORS
+app.use(cors({
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  credentials: true
+}));
+
 app.use(bodyParser.json());
 
 // Routes

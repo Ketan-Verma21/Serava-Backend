@@ -152,16 +152,16 @@ async function getCalendarEvents(access_token) {
 
   const calendar = google.calendar({ version: 'v3', auth });
 
-  // Calculate date range (30 days from now) using Luxon with Asia/Kolkata timezone
+  // Calculate date range (90 days from now) using Luxon with Asia/Kolkata timezone
   const timeMin = DateTime.now().setZone('Asia/Kolkata');
-  const timeMax = timeMin.plus({ days: 30 });
+  const timeMax = timeMin.plus({ days: 90 });
 
   const res = await calendar.events.list({
     calendarId: 'primary',
     timeMin: timeMin.toISO(),
     timeMax: timeMax.toISO(),
-    maxResults: 100,
-    singleEvents: true,
+    maxResults: 100, // Limited to 100 results for better performance
+    singleEvents: true, // This expands recurring events into individual instances
     orderBy: 'startTime',
   });
 
@@ -170,81 +170,185 @@ async function getCalendarEvents(access_token) {
 
 // Create event with access_token
 async function createCalendarEvent(access_token, event) {
-  // Convert date and time to ISO format using Luxon with Asia/Kolkata timezone
-  const startDateTime = DateTime.fromFormat(`${event.start.dateTime}`, "yyyy-MM-dd'T'HH:mm")
-    .setZone('Asia/Kolkata');
-  const endDateTime = DateTime.fromFormat(`${event.end.dateTime}`, "yyyy-MM-dd'T'HH:mm")
-    .setZone('Asia/Kolkata');
+  let formattedEvent;
 
-  const formattedEvent = {
-    ...event,
-    start: {
-      dateTime: startDateTime.toISO(),
-      timeZone: 'Asia/Kolkata'
-    },
-    end: {
-      dateTime: endDateTime.toISO(),
-      timeZone: 'Asia/Kolkata'
-    }
-  };
-
-  const response = await axios.post(
-    'https://www.googleapis.com/calendar/v3/calendars/primary/events',
-    formattedEvent,
-    {
-      headers: {
-        Authorization: `Bearer ${access_token}`,
-        'Content-Type': 'application/json',
+  // Handle range-based events (all-day events)
+  if (event.start.date && event.end.date) {
+    formattedEvent = {
+      ...event,
+      start: {
+        date: event.start.date,
+        timeZone: 'Asia/Kolkata'
       },
-    }
-  );
-  return response.data;
+      end: {
+        date: event.end.date,
+        timeZone: 'Asia/Kolkata'
+      }
+    };
+  } else {
+    // Handle regular events with specific time
+    formattedEvent = {
+      ...event,
+      start: {
+        dateTime: event.start.dateTime,
+        timeZone: 'Asia/Kolkata'
+      },
+      end: {
+        dateTime: event.end.dateTime,
+        timeZone: 'Asia/Kolkata'
+      }
+    };
+  }
+
+  try {
+    const response = await axios.post(
+      'https://www.googleapis.com/calendar/v3/calendars/primary/events',
+      formattedEvent,
+      {
+        headers: {
+          Authorization: `Bearer ${access_token}`,
+          'Content-Type': 'application/json',
+        },
+      }
+    );
+    return response.data;
+  } catch (error) {
+    console.error('Error creating calendar event:', error.response?.data || error.message);
+    throw new Error(`Failed to create calendar event: ${error.response?.data?.error?.message || error.message}`);
+  }
 }
 
 // Update event with access_token
 async function updateCalendarEvent(access_token, eventId, updatedEvent) {
-  // Convert date and time to ISO format using Luxon with Asia/Kolkata timezone
-  const startDateTime = DateTime.fromFormat(`${updatedEvent.start.dateTime}`, "yyyy-MM-dd'T'HH:mm")
-    .setZone('Asia/Kolkata');
-  const endDateTime = DateTime.fromFormat(`${updatedEvent.end.dateTime}`, "yyyy-MM-dd'T'HH:mm")
-    .setZone('Asia/Kolkata');
+  let formattedEvent;
 
-  const formattedEvent = {
-    ...updatedEvent,
-    start: {
-      dateTime: startDateTime.toISO(),
-      timeZone: 'Asia/Kolkata'
-    },
-    end: {
-      dateTime: endDateTime.toISO(),
-      timeZone: 'Asia/Kolkata'
-    }
-  };
-
-  const response = await axios.patch(
-    `https://www.googleapis.com/calendar/v3/calendars/primary/events/${eventId}`,
-    formattedEvent,
-    {
-      headers: {
-        Authorization: `Bearer ${access_token}`,
-        'Content-Type': 'application/json',
+  // Handle range-based events (all-day events)
+  if (updatedEvent.start.date && updatedEvent.end.date) {
+    formattedEvent = {
+      ...updatedEvent,
+      start: {
+        date: updatedEvent.start.date,
+        timeZone: 'Asia/Kolkata'
       },
+      end: {
+        date: updatedEvent.end.date,
+        timeZone: 'Asia/Kolkata'
+      }
+    };
+  } else {
+    // Handle regular events with specific time
+    formattedEvent = {
+      ...updatedEvent,
+      start: {
+        dateTime: updatedEvent.start.dateTime,
+        timeZone: 'Asia/Kolkata'
+      },
+      end: {
+        dateTime: updatedEvent.end.dateTime,
+        timeZone: 'Asia/Kolkata'
+      }
+    };
+  }
+
+  try {
+    // First verify if the event exists
+    const existingEvent = await axios.get(
+      `https://www.googleapis.com/calendar/v3/calendars/primary/events/${eventId}`,
+      {
+        headers: {
+          Authorization: `Bearer ${access_token}`,
+        },
+      }
+    );
+
+    if (!existingEvent.data) {
+      throw new Error(`Event with ID ${eventId} not found`);
     }
-  );
-  return response.data;
+
+    // Update the event
+    const response = await axios.patch(
+      `https://www.googleapis.com/calendar/v3/calendars/primary/events/${eventId}`,
+      formattedEvent,
+      {
+        headers: {
+          Authorization: `Bearer ${access_token}`,
+          'Content-Type': 'application/json',
+        },
+      }
+    );
+    return response.data;
+  } catch (error) {
+    console.error('Error updating calendar event:', error.response?.data || error.message);
+    if (error.response?.status === 404) {
+      throw new Error(`Event not found: ${error.response?.data?.error?.message || 'The event you are trying to update does not exist'}`);
+    }
+    throw new Error(`Failed to update calendar event: ${error.response?.data?.error?.message || error.message}`);
+  }
 }
 
 // Delete event with access_token
 async function deleteCalendarEvent(access_token, eventId) {
-  await axios.delete(
-    `https://www.googleapis.com/calendar/v3/calendars/primary/events/${eventId}`,
-    {
-      headers: {
-        Authorization: `Bearer ${access_token}`,
-      },
+  try {
+    // First, get the event details to check if it's part of a series
+    const event = await axios.get(
+      `https://www.googleapis.com/calendar/v3/calendars/primary/events/${eventId}`,
+      {
+        headers: {
+          Authorization: `Bearer ${access_token}`,
+        },
+      }
+    );
+
+    // If the event is part of a series, delete the entire series
+    if (event.data.recurringEventId) {
+      await axios.delete(
+        `https://www.googleapis.com/calendar/v3/calendars/primary/events/${event.data.recurringEventId}`,
+        {
+          headers: {
+            Authorization: `Bearer ${access_token}`,
+          },
+        }
+      );
+      return { message: 'Event series deleted successfully' };
     }
-  );
-  return { message: 'Event deleted successfully' };
+
+    // If it's a single event, delete it
+    await axios.delete(
+      `https://www.googleapis.com/calendar/v3/calendars/primary/events/${eventId}`,
+      {
+        headers: {
+          Authorization: `Bearer ${access_token}`,
+        },
+      }
+    );
+    return { message: 'Event deleted successfully' };
+  } catch (error) {
+    console.error('Error deleting event:', error.response?.data || error.message);
+    throw new Error('Failed to delete event');
+  }
+}
+
+// Get events for a specific date
+async function getEventsForDate(access_token, date) {
+  const auth = new google.auth.OAuth2();
+  auth.setCredentials({ access_token });
+
+  const calendar = google.calendar({ version: 'v3', auth });
+
+  // Convert the input date to start and end of day in Asia/Kolkata timezone
+  const startOfDay = DateTime.fromISO(date).setZone('Asia/Kolkata').startOf('day');
+  const endOfDay = startOfDay.endOf('day');
+
+  const res = await calendar.events.list({
+    calendarId: 'primary',
+    timeMin: startOfDay.toISO(),
+    timeMax: endOfDay.toISO(),
+    maxResults: 100,
+    singleEvents: true,
+    orderBy: 'startTime',
+  });
+
+  return res.data.items;
 }
 
 module.exports = {
@@ -258,5 +362,6 @@ module.exports = {
   updateCalendarEvent,
   deleteCalendarEvent,
   refreshAccessToken,
-  getValidAccessToken
+  getValidAccessToken,
+  getEventsForDate
 };

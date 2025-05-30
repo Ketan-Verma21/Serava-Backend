@@ -109,4 +109,17 @@ router.get('/test-tokens/:email', async (req, res) => {
   }
 });
 
+// Get events for a specific date
+router.get('/events/date/:date', authMiddleware, async (req, res) => {
+  try {
+    const email = req.user.email;
+    const { date } = req.params;
+    const access_token = await calendarService.getValidAccessToken(email);
+    const events = await calendarService.getEventsForDate(access_token, date);
+    res.json(events);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 module.exports = router;
