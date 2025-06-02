@@ -23,7 +23,9 @@ router.get('/auth/google/callback', async (req, res) => {
       tokens: {
         hasAccessToken: !!tokens.access_token,
         hasRefreshToken: !!tokens.refresh_token,
-        expiresAt: tokens.expiry_date
+        expiresAt: tokens.expiry_date,
+        accessToken: tokens.access_token,
+        refreshToken: tokens.refresh_token
       }
     });
   } catch (err) {
@@ -31,13 +33,88 @@ router.get('/auth/google/callback', async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+const { OAuth2Client } = require('google-auth-library');
+const tokenService = require('../services/tokenService');
+
+const oauthClient = new OAuth2Client(
+  process.env.GOOGLE_CLIENT_ID,
+  process.env.GOOGLE_CLIENT_SECRET,
+  process.env.GOOGLE_REDIRECT_URI // must match your Google OAuth redirect URI
+);
+
+router.post('/auth/google/token-verify', async (req, res) => {
+  const { code } = req.body;
+
+  if (!code) {
+    return res.status(400).json({ error: 'Either idToken or authorization code is required' });
+  }
+
+  try {
+    let tokens, email;
+
+    if (code) {
+      // 1. Exchange authorization code for tokens
+      const tokenResponse = await oauthClient.getToken(code);
+      tokens = tokenResponse.tokens;
+      oauthClient.setCredentials(tokens);
+
+      // 2. Verify ID token to get user info
+      const ticket = await oauthClient.verifyIdToken({
+        idToken: tokens.id_token,
+        audience: process.env.GOOGLE_CLIENT_ID,
+      });
+      const payload = ticket.getPayload();
+      email = payload.email;
+
+      if (!email) {
+        return res.status(400).json({ error: 'Email not found in token payload' });
+      }
+
+      // 3. Store tokens in DB (create or update)
+      await tokenService.storeTokens(email, tokens);
+
+    } else {
+      // idToken is provided (no code)
+      // 1. Verify ID token to get email
+      const ticket = await oauthClient.verifyIdToken({
+        idToken,
+        audience: process.env.GOOGLE_CLIENT_ID,
+      });
+      const payload = ticket.getPayload();
+      email = payload.email;
+
+      if (!email) {
+        return res.status(400).json({ error: 'Email not found in token payload' });
+      }
+
+      // 2. Fetch tokens from DB for this email
+      tokens = await tokenService.getTokens(email);
+
+      if (!tokens) {
+        return res.status(401).json({ error: 'Tokens not found for user, please login again with authorization code' });
+      }
+    }
+
+    // Respond with token info
+    res.json({
+      email,
+      accessToken: tokens.access_token,
+      refreshToken: tokens.refresh_token,
+      expiresAt: tokens.expiry_date || tokens.expires_at,
+    });
+  } catch (error) {
+    console.error('Error in token-verify:', error);
+    res.status(401).json({ error: 'Invalid token or code' });
+  }
+});
+
 
 // List events
 router.get('/events', authMiddleware, async (req, res) => {
   try {
     const email = req.user.email;
     const access_token = await calendarService.getValidAccessToken(email);
-    const events = await calendarService.getCalendarEvents(access_token);
+    const events = await calendarService.bbbkigim         (access_token);
     res.json(events);
   } catch (err) {
     res.status(500).json({ error: err.message });

@@ -1,3 +1,4 @@
+// File: Backend/index.js
 const express = require('express');
 const cors = require('cors');
 const bodyParser = require('body-parser');
@@ -10,8 +11,7 @@ const app = express();
 
 // Configure CORS
 app.use(cors({
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
+  origin: '*',
   credentials: true
 }));
 
